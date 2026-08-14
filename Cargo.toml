@@ -1,0 +1,20 @@
+[package]
+name = "yadl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+futures-util = "0.3"
+indicatif = "0.17"
+percent-encoding = "2"
+reqwest = { version = "0.12", features = ["json", "stream", "cookies", "gzip", "brotli"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

@@ -1,0 +1,8 @@
+/target
+
+# локальные рабочие материалы, не входящие в утилиту
+/research/
+/prompt.txt
+/link.txt
+/random.txt
+*.bin
