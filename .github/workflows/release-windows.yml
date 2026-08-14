@@ -1,0 +1,130 @@
+name: Windows release
+
+# Ручной запуск: выбираем ветку и версию, получаем тег с zip-архивом.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Версия релиза, например 0.1.0 — станет именем тега и попадёт в имя архива'
+        required: true
+        type: string
+      branch:
+        description: 'Ветка для сборки (пусто — та, что выбрана в списке слева)'
+        required: false
+        type: string
+        default: ''
+      overwrite_tag:
+        description: 'Если тег уже есть — перенести его на собранный коммит'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      VERSION: ${{ inputs.version }}
+      BRANCH: ${{ inputs.branch }}
+      OVERWRITE_TAG: ${{ inputs.overwrite_tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Проверить формат версии
+        shell: bash
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Неверный формат версии: '$VERSION' (ожидается 1.2.3 или 1.2.3-rc1)"
+            exit 1
+          fi
+          echo "ZIP_NAME=yadl-windows-$VERSION.zip" >> "$GITHUB_ENV"
+
+      - name: Забрать исходники
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Запомнить собираемый коммит
+        id: src
+        shell: bash
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Ветка: ${BRANCH:-${{ github.ref_name }}}, коммит: $(git rev-parse --short HEAD)"
+
+      - name: Установить Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc -V && cargo -V
+
+      - name: Кеш cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Сверить версию в Cargo.toml
+        shell: bash
+        run: |
+          manifest=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$manifest" != "$VERSION" ]; then
+            echo "::warning::В Cargo.toml версия $manifest, а релиз собирается как $VERSION"
+          fi
+
+      - name: Собрать
+        shell: bash
+        run: cargo build --release --locked
+
+      - name: Упаковать архив
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/yadl.exe dist/
+          Copy-Item README.md, LICENSE dist/
+          Compress-Archive -Path dist/* -DestinationPath $env:ZIP_NAME -Force
+          $hash = (Get-FileHash $env:ZIP_NAME -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item $env:ZIP_NAME).Length
+          "### $env:ZIP_NAME`n`n- размер: $size байт`n- sha256: ``$hash``" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Приложить к сборке
+        uses: actions/upload-artifact@v4
+        with:
+          name: yadl-windows-${{ inputs.version }}
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      - name: Создать/обновить тег и релиз
+        shell: bash
+        env:
+          SHA: ${{ steps.src.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$OVERWRITE_TAG" = "true" ] && git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Переношу тег $VERSION на $SHA"
+            git tag -f "$VERSION" "$SHA"
+            git push -f origin "refs/tags/$VERSION"
+          fi
+
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Релиз $VERSION уже существует — заменяю бинарники"
+          else
+            # если тега нет, он будет создан на $SHA; если есть — используется как есть
+            gh release create "$VERSION" \
+              --target "$SHA" \
+              --title "yadl $VERSION" \
+              --notes "Сборка под Windows (x86_64-pc-windows-msvc) из ветки \`${BRANCH:-${{ github.ref_name }}}\`, коммит \`$SHA\`."
+          fi
+
+          gh release upload "$VERSION" "$ZIP_NAME" --clobber
+          echo "Готово: $(gh release view "$VERSION" --json url --jq .url)"
