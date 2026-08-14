@@ -159,3 +159,33 @@ yadl "$URL" --backend web -p 'секрет'    # web сразу
 | `на странице нет store-prefetch` | (`--backend web`) ссылка невалидна |
 | `download-url отказал` | не сохранились cookies — проверьте, что нет прокси, режущего `Set-Cookie` |
 | `размер не совпал` | обрыв соединения; повторите с `--resume` |
+
+## Ресурсы
+
+Публичный API Яндекс.Диска — то, на чём построен backend `cloud`:
+
+* [REST API Диска — обзор и содержание](https://yandex.ru/dev/disk-api/doc/ru/) ([старый адрес](https://yandex.ru/dev/disk/rest/))
+* [Операции над опубликованными файлами и папками](https://yandex.ru/dev/disk-api/doc/ru/reference/public) —
+  описание `GET /v1/disk/public/resources` и `/v1/disk/public/resources/download`
+  ([English](https://yandex.ru/dev/disk-api/doc/en/reference/public))
+* [Объекты в ответах API](https://yandex.ru/dev/disk-api/doc/ru/reference/response-objects) — поля
+  `Resource`, `ResourceList`, `Link`
+* [Начало работы](https://yandex.ru/dev/disk-api/doc/ru/concepts/quickstart) — нужно, только если
+  понадобится OAuth-доступ к приватным файлам; для публичных ссылок токен не требуется
+* [Справка Яндекс.Диска](https://yandex.ru/support/disk/) — как публиковать файлы и ставить пароль
+  на ссылку
+
+Backend `web` использует внутренние эндпоинты `disk.yandex.ru/public/api/*`, которые не
+документированы и могут измениться без предупреждения.
+
+Полезное по механике загрузки:
+
+* [RFC 9110, §14 Range Requests](https://www.rfc-editor.org/rfc/rfc9110.html#name-range-requests) —
+  на чём основан `--resume`
+* [reqwest](https://docs.rs/reqwest/latest/reqwest/) — HTTP-клиент, на котором написана утилита
+* [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) — использовался для снятия
+  трафика браузера при разборе протокола
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE).
